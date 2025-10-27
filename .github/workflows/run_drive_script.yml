@@ -37,6 +37,7 @@ jobs:
         env:
           # Step 3で設定したSecretsを環境変数 'GCP_SA_KEY' として渡す
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          EXCEL_PASSWORD: ${{ secrets.EXCEL_PASSWORD_1 }}
           
           # ★★★ ここにあなたのフォルダIDを設定してください ★★★
           INPUT_FOLDER_ID: '1PmHkmx4ibaKYPgiVohHtkmOrp-HjxUlL'
