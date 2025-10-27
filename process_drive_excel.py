@@ -5,6 +5,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 import json
+import msoffcrypto
 
 # --- 設定項目 (GitHubの環境変数から自動で読み込む) ---
 try:

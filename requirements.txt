@@ -3,4 +3,4 @@ google-auth-httplib2
 google-auth-oauthlib
 pandas
 openpyxl
-msoffcrypto
+msoffcrypto-tool
