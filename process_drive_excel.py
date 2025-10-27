@@ -1,0 +1,131 @@
+import io
+import os
+import pandas as pd
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+import json
+
+# --- 設定項目 (GitHubの環境変数から自動で読み込む) ---
+try:
+    # 1. GitHub SecretsからJSONキーの「文字列」を読み込む
+    sa_key_string = os.environ['GCP_SA_KEY']
+    # 2. 文字列をPythonが扱える辞書(JSON)形式に変換
+    sa_key_json = json.loads(sa_key_string)
+    
+    # 3. GitHub ワークフローファイルからフォルダIDを読み込む
+    TARGET_EXCEL_FOLDER_ID = os.environ['INPUT_FOLDER_ID']
+    UPLOAD_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID']
+
+except KeyError as e:
+    print(f"エラー: 必要な環境変数が設定されていません: {e}")
+    print("GitHubのSecretsに 'GCP_SA_KEY'、ワークフローファイルに 'INPUT_FOLDER_ID' と 'OUTPUT_FOLDER_ID' が必要です。")
+    exit(1)
+
+# 出力するCSVファイルの名前
+OUTPUT_CSV_FILE_NAME = 'output_data.csv'
+
+# Google APIのスコープ
+SCOPES = ['https://www.googleapis.com/auth/drive']
+
+def main():
+    """メインの処理を実行する関数"""
+    
+    # 1. 認証とサービスの準備
+    print("Google Driveに認証中...")
+    creds = service_account.Credentials.from_service_account_info(
+        sa_key_json, scopes=SCOPES)
+    service = build('drive', 'v3', credentials=creds)
+
+    # 2. 【入力】指定したフォルダ内の最新ファイルを取得
+    print(f"入力フォルダ '{TARGET_EXCEL_FOLDER_ID}' 内の最新ファイルを検索中...")
+    query = f"'{TARGET_EXCEL_FOLDER_ID}' in parents and trashed = false"
+    
+    results = service.files().list(
+        q=query,
+        pageSize=1,
+        orderBy='createdTime desc', # 作成日の降順（新しい順）
+        fields='files(id, name)'
+    ).execute()
+    
+    items = results.get('files', [])
+
+    if not items:
+        print('フォルダ内にファイルが見つかりませんでした。')
+        return
+
+    latest_file = items[0]
+    file_id = latest_file['id']
+    file_name = latest_file['name']
+    print(f"最新ファイルが見つかりました: '{file_name}' (ID: {file_id})")
+
+    # 3. ファイルをダウンロードしてメモリに読み込む
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while done is False:
+        status, done = downloader.next_chunk()
+        print(f"ダウンロード中 {int(status.progress() * 100)}%")
+    
+    fh.seek(0)
+
+    # 4. PandasでExcelデータを読み込む
+    print("PandasでExcelデータを読み込み中...")
+    try:
+        df = pd.read_excel(fh)
+    except Exception as e:
+        print(f"Excelファイルの読み込みに失敗しました: {e}")
+        print("ファイルがExcel形式 (.xlsx, .xls) であることを確認してください。")
+        return
+        
+    print("Excelデータの読み込み完了。")
+    print("--- 元データ (先頭5行) ---")
+    print(df.head())
+
+    # 5. 必要な処理を施す (この部分はご自身の処理に書き換えてください)
+    #
+    # (例: '売上' 列がもしあれば、それに1.1をかける)
+    # if '売上' in df.columns:
+    #     df['税込売上'] = df['売上'] * 1.1
+    #
+    
+    print("\n--- 処理後データ (先頭5行) ---")
+    print(df.head())
+
+    # 6. 生成物をCSVファイルとしてローカル（GitHub Actionsの実行環境内）に保存
+    df.to_csv(OUTPUT_CSV_FILE_NAME, index=False, encoding='utf-8-sig')
+    print(f"\n'{OUTPUT_CSV_FILE_NAME}' として結果をローカルに保存しました。")
+    
+    # 7. 【出力】生成物をGoogle Driveの別ドライブ（指定フォルダ）にアップロード
+    print(f"出力フォルダ '{UPLOAD_FOLDER_ID}' にアップロード中...")
+    file_metadata = {
+        'name': OUTPUT_CSV_FILE_NAME,
+        'parents': [UPLOAD_FOLDER_ID]
+    }
+    media = MediaFileUpload(OUTPUT_CSV_FILE_NAME, mimetype='text/csv')
+    
+    # 既存の同名ファイルを検索して、あれば「更新」、なければ「新規作成」する
+    existing_file_query = f"'{UPLOAD_FOLDER_ID}' in parents and name = '{OUTPUT_CSV_FILE_NAME}' and trashed = false"
+    existing_files = service.files().list(q=existing_file_query, fields='files(id)').execute().get('files', [])
+    
+    if existing_files:
+        existing_file_id = existing_files[0]['id']
+        print(f"既存のファイル (ID: {existing_file_id}) を更新します。")
+        upload_file = service.files().update(
+            fileId=existing_file_id,
+            media_body=media,
+            fields='id'
+        ).execute()
+    else:
+        print("新規ファイルとして作成します。")
+        upload_file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
+        
+    print(f"アップロード完了。ファイルID: {upload_file.get('id')}")
+
+if __name__ == '__main__':
+    main()
