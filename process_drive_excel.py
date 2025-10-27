@@ -16,10 +16,13 @@ try:
     # 3. GitHub ワークフローファイルからフォルダIDを読み込む
     TARGET_EXCEL_FOLDER_ID = os.environ['INPUT_FOLDER_ID']
     UPLOAD_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID']
+    
+    # 4. GitHub SecretsからExcelパスワードを読み込む
+    EXCEL_PASSWORD = os.environ['EXCEL_PASSWORD_1'] # ← 2. 環境変数の読み込みを追加
 
 except KeyError as e:
     print(f"エラー: 必要な環境変数が設定されていません: {e}")
-    print("GitHubのSecretsに 'GCP_SA_KEY'、ワークフローファイルに 'INPUT_FOLDER_ID' と 'OUTPUT_FOLDER_ID' が必要です。")
+    print("GitHubのSecretsに 'GCP_SA_KEY'、 'EXCEL_PASSWORD_1'、ワークフローファイルに 'INPUT_FOLDER_ID' と 'OUTPUT_FOLDER_ID' が必要です。")
     exit(1)
 
 # 出力するCSVファイルの名前
@@ -27,6 +30,40 @@ OUTPUT_CSV_FILE_NAME = 'output_data.csv'
 
 # Google APIのスコープ
 SCOPES = ['https://www.googleapis.com/auth/drive']
+
+
+# 3. パスワード付きExcelを読み込む関数 (io.BytesIOを引数に取るよう修正)
+def load_locked_excel(buffer: io.BytesIO, sheet_name: str, password: str) -> pd.DataFrame:
+    """パスワード付きExcelファイル(メモリ上)を読み込む
+
+    Args:
+        buffer (io.BytesIO): ダウンロードしたExcelファイルのバイナリデータ
+        sheet_name (str): 読み込むシート名
+        password (str): Excelファイルのパスワード
+
+    Returns:
+        pd.DataFrame: 読み込んだDataFrame
+    """
+    try:
+        # メモリ上のBytesIOオブジェクトを直接msoffcryptoに渡す
+        office_file = msoffcrypto.OfficeFile(buffer)
+        office_file.load_key(password=password)
+        decrypted_buffer = io.BytesIO()
+        office_file.decrypt(decrypted_buffer)
+        decrypted_buffer.seek(0)
+
+        df: pd.DataFrame = pd.read_excel(
+            decrypted_buffer, sheet_name=sheet_name, engine="openpyxl"
+        )
+    except Exception as e:
+        print(f"Error loading the locked Excel file: {e}")
+        # msoffcrypto固有のエラーをキャッチ
+        if "Decryption failed" in str(e) or "bad decrypt" in str(e):
+            print(">>> パスワードが間違っているか、ファイル形式がサポートされていません。")
+        return pd.DataFrame()
+
+    return df
+
 
 def main():
     """メインの処理を実行する関数"""
@@ -66,29 +103,28 @@ def main():
     file_date = file_name[len(FILE_PREFIX):].strip()  # プレフィックス以降の日付部分を抽出
     print(f"最新ファイルが見つかりました: '{file_name}' (ID: {file_id})")
 
-    # # 3. ファイルをダウンロードしてメモリに読み込む
-    # request = service.files().get_media(fileId=file_id)
-    # fh = io.BytesIO()
-    # downloader = MediaIoBaseDownload(fh, request)
-    # done = False
-    # while done is False:
-    #     status, done = downloader.next_chunk()
-    #     print(f"ダウンロード中 {int(status.progress() * 100)}%")
+    # 3. ファイルをダウンロードしてメモリに読み込む
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while done is False:
+        status, done = downloader.next_chunk()
+        print(f"ダウンロード中 {int(status.progress() * 100)}%")
     
-    # fh.seek(0)
+    fh.seek(0)
 
-    # # 4. PandasでExcelデータを読み込む
-    # print("PandasでExcelデータを読み込み中...")
-    # try:
-    #     df = pd.read_excel(fh)
-    # except Exception as e:
-    #     print(f"Excelファイルの読み込みに失敗しました: {e}")
-    #     print("ファイルがExcel形式 (.xlsx, .xls) であることを確認してください。")
-    #     return
-        
-    # print("Excelデータの読み込み完了。")
-    # print("--- 元データ (先頭5行) ---")
-    # print(df.head())
+    # 4. PandasでExcelデータを読み込む
+    print("PandasでExcelデータを読み込み中...")
+    TARGET_SHEET_NAME = "H3(2026卒)"
+    df: pd.DataFrame = load_locked_excel(fh, sheet_name=TARGET_SHEET_NAME, password=EXCEL_PASSWORD_1)
+    
+    if df.empty:
+        print("Excelデータの読み込みに失敗したか、データが空です。処理を終了します。")
+        return
+    print("Excelデータの読み込み完了。")
+    print("--- 元データ (先頭5行) ---")
+    print(df.head())
 
     # # 5. 必要な処理を施す (この部分はご自身の処理に書き換えてください)
     # #
