@@ -38,13 +38,19 @@ def main():
     service = build('drive', 'v3', credentials=creds)
 
     # 2. 【入力】指定したフォルダ内の最新ファイルを取得
-    print(f"入力フォルダ '{TARGET_EXCEL_FOLDER_ID}' 内の最新ファイルを検索中...")
-    query = f"'{TARGET_EXCEL_FOLDER_ID}' in parents and trashed = false"
+    FILE_PREFIX = "東大特進入学＆資料請求"
+    print(f"入力フォルダ '{TARGET_EXCEL_FOLDER_ID}' 内で")
+    print(f"プレフィックスが '{FILE_PREFIX}' の最新ファイルを検索中...")
     
+    query = (
+        f"'{TARGET_EXCEL_FOLDER_ID}' in parents "
+        f"and transhed = false "
+        f"and name starts with '{FILE_PREFIX}' "
+    )
     results = service.files().list(
         q=query,
         pageSize=1,
-        orderBy='createdTime desc', # 作成日の降順（新しい順）
+        orderBy='name desc', # 作成日の降順（新しい順）
         fields='files(id, name)'
     ).execute()
     
@@ -57,75 +63,76 @@ def main():
     latest_file = items[0]
     file_id = latest_file['id']
     file_name = latest_file['name']
+    file_date = file_name[len(FILE_PREFIX):].strip()  # プレフィックス以降の日付部分を抽出
     print(f"最新ファイルが見つかりました: '{file_name}' (ID: {file_id})")
 
-    # 3. ファイルをダウンロードしてメモリに読み込む
-    request = service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while done is False:
-        status, done = downloader.next_chunk()
-        print(f"ダウンロード中 {int(status.progress() * 100)}%")
+    # # 3. ファイルをダウンロードしてメモリに読み込む
+    # request = service.files().get_media(fileId=file_id)
+    # fh = io.BytesIO()
+    # downloader = MediaIoBaseDownload(fh, request)
+    # done = False
+    # while done is False:
+    #     status, done = downloader.next_chunk()
+    #     print(f"ダウンロード中 {int(status.progress() * 100)}%")
     
-    fh.seek(0)
+    # fh.seek(0)
 
-    # 4. PandasでExcelデータを読み込む
-    print("PandasでExcelデータを読み込み中...")
-    try:
-        df = pd.read_excel(fh)
-    except Exception as e:
-        print(f"Excelファイルの読み込みに失敗しました: {e}")
-        print("ファイルがExcel形式 (.xlsx, .xls) であることを確認してください。")
-        return
+    # # 4. PandasでExcelデータを読み込む
+    # print("PandasでExcelデータを読み込み中...")
+    # try:
+    #     df = pd.read_excel(fh)
+    # except Exception as e:
+    #     print(f"Excelファイルの読み込みに失敗しました: {e}")
+    #     print("ファイルがExcel形式 (.xlsx, .xls) であることを確認してください。")
+    #     return
         
-    print("Excelデータの読み込み完了。")
-    print("--- 元データ (先頭5行) ---")
-    print(df.head())
+    # print("Excelデータの読み込み完了。")
+    # print("--- 元データ (先頭5行) ---")
+    # print(df.head())
 
-    # 5. 必要な処理を施す (この部分はご自身の処理に書き換えてください)
-    #
-    # (例: '売上' 列がもしあれば、それに1.1をかける)
-    # if '売上' in df.columns:
-    #     df['税込売上'] = df['売上'] * 1.1
-    #
+    # # 5. 必要な処理を施す (この部分はご自身の処理に書き換えてください)
+    # #
+    # # (例: '売上' 列がもしあれば、それに1.1をかける)
+    # # if '売上' in df.columns:
+    # #     df['税込売上'] = df['売上'] * 1.1
+    # #
     
-    print("\n--- 処理後データ (先頭5行) ---")
-    print(df.head())
+    # print("\n--- 処理後データ (先頭5行) ---")
+    # print(df.head())
 
-    # 6. 生成物をCSVファイルとしてローカル（GitHub Actionsの実行環境内）に保存
-    df.to_csv(OUTPUT_CSV_FILE_NAME, index=False, encoding='utf-8-sig')
-    print(f"\n'{OUTPUT_CSV_FILE_NAME}' として結果をローカルに保存しました。")
+    # # 6. 生成物をCSVファイルとしてローカル（GitHub Actionsの実行環境内）に保存
+    # df.to_csv(OUTPUT_CSV_FILE_NAME, index=False, encoding='utf-8-sig')
+    # print(f"\n'{OUTPUT_CSV_FILE_NAME}' として結果をローカルに保存しました。")
     
-    # 7. 【出力】生成物をGoogle Driveの別ドライブ（指定フォルダ）にアップロード
-    print(f"出力フォルダ '{UPLOAD_FOLDER_ID}' にアップロード中...")
-    file_metadata = {
-        'name': OUTPUT_CSV_FILE_NAME,
-        'parents': [UPLOAD_FOLDER_ID]
-    }
-    media = MediaFileUpload(OUTPUT_CSV_FILE_NAME, mimetype='text/csv')
+    # # 7. 【出力】生成物をGoogle Driveの別ドライブ（指定フォルダ）にアップロード
+    # print(f"出力フォルダ '{UPLOAD_FOLDER_ID}' にアップロード中...")
+    # file_metadata = {
+    #     'name': OUTPUT_CSV_FILE_NAME,
+    #     'parents': [UPLOAD_FOLDER_ID]
+    # }
+    # media = MediaFileUpload(OUTPUT_CSV_FILE_NAME, mimetype='text/csv')
     
-    # 既存の同名ファイルを検索して、あれば「更新」、なければ「新規作成」する
-    existing_file_query = f"'{UPLOAD_FOLDER_ID}' in parents and name = '{OUTPUT_CSV_FILE_NAME}' and trashed = false"
-    existing_files = service.files().list(q=existing_file_query, fields='files(id)').execute().get('files', [])
+    # # 既存の同名ファイルを検索して、あれば「更新」、なければ「新規作成」する
+    # existing_file_query = f"'{UPLOAD_FOLDER_ID}' in parents and name = '{OUTPUT_CSV_FILE_NAME}' and trashed = false"
+    # existing_files = service.files().list(q=existing_file_query, fields='files(id)').execute().get('files', [])
     
-    if existing_files:
-        existing_file_id = existing_files[0]['id']
-        print(f"既存のファイル (ID: {existing_file_id}) を更新します。")
-        upload_file = service.files().update(
-            fileId=existing_file_id,
-            media_body=media,
-            fields='id'
-        ).execute()
-    else:
-        print("新規ファイルとして作成します。")
-        upload_file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
+    # if existing_files:
+    #     existing_file_id = existing_files[0]['id']
+    #     print(f"既存のファイル (ID: {existing_file_id}) を更新します。")
+    #     upload_file = service.files().update(
+    #         fileId=existing_file_id,
+    #         media_body=media,
+    #         fields='id'
+    #     ).execute()
+    # else:
+    #     print("新規ファイルとして作成します。")
+    #     upload_file = service.files().create(
+    #         body=file_metadata,
+    #         media_body=media,
+    #         fields='id'
+    #     ).execute()
         
-    print(f"アップロード完了。ファイルID: {upload_file.get('id')}")
+    # print(f"アップロード完了。ファイルID: {upload_file.get('id')}")
 
 if __name__ == '__main__':
     main()
