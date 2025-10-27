@@ -44,7 +44,7 @@ def main():
     
     query = (
         f"'{TARGET_EXCEL_FOLDER_ID}' in parents "
-        f"and transhed = false "
+        f"and trashed = false "
         f"and name starts with '{FILE_PREFIX}' "
     )
     results = service.files().list(
