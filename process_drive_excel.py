@@ -153,35 +153,31 @@ def main():
     df.to_csv(OUTPUT_CSV_FILE_NAME, index=False, encoding='utf-8-sig')
     print(f"\n'{OUTPUT_CSV_FILE_NAME}' として結果をローカルに保存しました。")
     
-    # 7. 【出力】生成物をGoogle Driveの別ドライブ（指定フォルダ）にアップロード
-    print(f"出力フォルダ '{UPLOAD_FOLDER_ID}' にアップロード中...")
+    # 7. 【出力】デバッグのため、常にユニークな名前で「新規作成」を試みる
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    debug_file_name = f"debug_output_{timestamp}.csv"
+
+    print(f"デバッグ: 出力フォルダ '{UPLOAD_FOLDER_ID}' に '{debug_file_name}' を新規作成中...")
     file_metadata = {
-        'name': OUTPUT_CSV_FILE_NAME,
+        'name': debug_file_name,
         'parents': [UPLOAD_FOLDER_ID]
     }
     media = MediaFileUpload(OUTPUT_CSV_FILE_NAME, mimetype='text/csv')
-    
-    # 既存の同名ファイルを検索して、あれば「更新」、なければ「新規作成」する
-    existing_file_query = f"'{UPLOAD_FOLDER_ID}' in parents and name = '{OUTPUT_CSV_FILE_NAME}' and trashed = false"
-    existing_files = service.files().list(q=existing_file_query, fields='files(id)').execute().get('files', [])
-    
-    if existing_files:
-        existing_file_id = existing_files[0]['id']
-        print(f"既存のファイル (ID: {existing_file_id}) を更新します。")
-        upload_file = service.files().update(
-            fileId=existing_file_id,
-            media_body=media,
-            fields='id'
-        ).execute()
-    else:
-        print("新規ファイルとして作成します。")
+
+    try:
         upload_file = service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id'
         ).execute()
         
-    print(f"アップロード完了。ファイルID: {upload_file.get('id')}")
+        print(f"デバッグ: 新規作成成功。ファイルID: {upload_file.get('id')}")
+
+    except Exception as e:
+        print(f"デバッグ: やはり新規作成(create)に失敗しました。エラー: {e}")
+
+    # print(f"アップロード完了。ファイルID: {upload_file.get('id')}") # 元のコードの最後の行もコメントアウト
 
 if __name__ == '__main__':
     main()
