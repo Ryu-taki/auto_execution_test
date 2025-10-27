@@ -1,5 +1,6 @@
 import io
 import os
+import datetime
 import pandas as pd
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -25,9 +26,6 @@ except KeyError as e:
     print(f"エラー: 必要な環境変数が設定されていません: {e}")
     print("GitHubのSecretsに 'GCP_SA_KEY'、 'EXCEL_PASSWORD_1'、ワークフローファイルに 'INPUT_FOLDER_ID' と 'OUTPUT_FOLDER_ID' が必要です。")
     exit(1)
-
-# 出力するCSVファイルの名前
-OUTPUT_CSV_FILE_NAME = 'output_data.csv'
 
 # Google APIのスコープ
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -64,6 +62,17 @@ def load_locked_excel(buffer: io.BytesIO, sheet_name: str, password: str) -> pd.
         return pd.DataFrame()
 
     return df
+
+
+def output_secure_date() -> str:
+    """暗号化コード実行日を返す
+
+    Returns:
+        str: 暗号化コード実行日（yymmdd）
+    """
+    today = datetime.date.today()
+
+    return today.strftime("%y%m%d")
 
 
 def main():
@@ -137,39 +146,42 @@ def main():
     # print("\n--- 処理後データ (先頭5行) ---")
     # print(df.head())
 
-    # # 6. 生成物をCSVファイルとしてローカル（GitHub Actionsの実行環境内）に保存
-    # df.to_csv(OUTPUT_CSV_FILE_NAME, index=False, encoding='utf-8-sig')
-    # print(f"\n'{OUTPUT_CSV_FILE_NAME}' として結果をローカルに保存しました。")
+    # 6. 生成物をCSVファイルとしてローカル（GitHub Actionsの実行環境内）に保存
+    # 出力するCSVファイルの名前
+
+    OUTPUT_CSV_FILE_NAME = f"secure-{output_secure_date()}_{file_name.replace('.xlsx', '')}.csv"
+    df.to_csv(OUTPUT_CSV_FILE_NAME, index=False, encoding='utf-8-sig')
+    print(f"\n'{OUTPUT_CSV_FILE_NAME}' として結果をローカルに保存しました。")
     
-    # # 7. 【出力】生成物をGoogle Driveの別ドライブ（指定フォルダ）にアップロード
-    # print(f"出力フォルダ '{UPLOAD_FOLDER_ID}' にアップロード中...")
-    # file_metadata = {
-    #     'name': OUTPUT_CSV_FILE_NAME,
-    #     'parents': [UPLOAD_FOLDER_ID]
-    # }
-    # media = MediaFileUpload(OUTPUT_CSV_FILE_NAME, mimetype='text/csv')
+    # 7. 【出力】生成物をGoogle Driveの別ドライブ（指定フォルダ）にアップロード
+    print(f"出力フォルダ '{UPLOAD_FOLDER_ID}' にアップロード中...")
+    file_metadata = {
+        'name': OUTPUT_CSV_FILE_NAME,
+        'parents': [UPLOAD_FOLDER_ID]
+    }
+    media = MediaFileUpload(OUTPUT_CSV_FILE_NAME, mimetype='text/csv')
     
-    # # 既存の同名ファイルを検索して、あれば「更新」、なければ「新規作成」する
-    # existing_file_query = f"'{UPLOAD_FOLDER_ID}' in parents and name = '{OUTPUT_CSV_FILE_NAME}' and trashed = false"
-    # existing_files = service.files().list(q=existing_file_query, fields='files(id)').execute().get('files', [])
+    # 既存の同名ファイルを検索して、あれば「更新」、なければ「新規作成」する
+    existing_file_query = f"'{UPLOAD_FOLDER_ID}' in parents and name = '{OUTPUT_CSV_FILE_NAME}' and trashed = false"
+    existing_files = service.files().list(q=existing_file_query, fields='files(id)').execute().get('files', [])
     
-    # if existing_files:
-    #     existing_file_id = existing_files[0]['id']
-    #     print(f"既存のファイル (ID: {existing_file_id}) を更新します。")
-    #     upload_file = service.files().update(
-    #         fileId=existing_file_id,
-    #         media_body=media,
-    #         fields='id'
-    #     ).execute()
-    # else:
-    #     print("新規ファイルとして作成します。")
-    #     upload_file = service.files().create(
-    #         body=file_metadata,
-    #         media_body=media,
-    #         fields='id'
-    #     ).execute()
+    if existing_files:
+        existing_file_id = existing_files[0]['id']
+        print(f"既存のファイル (ID: {existing_file_id}) を更新します。")
+        upload_file = service.files().update(
+            fileId=existing_file_id,
+            media_body=media,
+            fields='id'
+        ).execute()
+    else:
+        print("新規ファイルとして作成します。")
+        upload_file = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
         
-    # print(f"アップロード完了。ファイルID: {upload_file.get('id')}")
+    print(f"アップロード完了。ファイルID: {upload_file.get('id')}")
 
 if __name__ == '__main__':
     main()
