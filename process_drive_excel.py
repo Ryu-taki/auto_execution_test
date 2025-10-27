@@ -19,7 +19,7 @@ try:
     UPLOAD_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID']
     
     # 4. GitHub SecretsからExcelパスワードを読み込む
-    EXCEL_PASSWORD = os.environ['EXCEL_PASSWORD_1'] # ← 2. 環境変数の読み込みを追加
+    EXCEL_PASSWORD_1 = os.environ['EXCEL_PASSWORD_1'] # ← 2. 環境変数の読み込みを追加
 
 except KeyError as e:
     print(f"エラー: 必要な環境変数が設定されていません: {e}")
