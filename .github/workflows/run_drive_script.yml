@@ -1,0 +1,46 @@
+name: Google Drive Excel処理の自動実行
+
+on:
+  # スケジュール実行
+  schedule:
+    # 毎日午前9時 (JST) に実行
+    # UTC（協定世界時）基準で指定するため、-9時間して 00:00 に設定
+    - cron: '0 0 * * *'
+    
+  # 手動実行
+  # GitHubのActionsタブから「Run workflow」ボタンでいつでも実行可能
+  workflow_dispatch:
+
+jobs:
+  run-python-script:
+    runs-on: ubuntu-latest # Linux環境で実行
+
+    steps:
+      # 1. リポジトリのコードを実行環境にコピー
+      - name: コードをチェックアウト
+        uses: actions/checkout@v4
+
+      # 2. Pythonのバージョンを設定
+      - name: Python 3.10 をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # 3. 必要なライブラリをインストール
+      - name: 依存ライブラリをインストール
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. Pythonスクリプトを実行
+      - name: Pythonスクリプトを実行
+        env:
+          # Step 3で設定したSecretsを環境変数 'GCP_SA_KEY' として渡す
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          
+          # ★★★ ここにあなたのフォルダIDを設定してください ★★★
+          INPUT_FOLDER_ID: '1PmHkmx4ibaKYPgiVohHtkmOrp-HjxUlL'
+          OUTPUT_FOLDER_ID: '1Ve3PrGzm4dXskJdyKZf5E3akhgpNemkq'
+          # ★★★ ここまで ★★★
+          
+        run: python process_drive_excel.py
