@@ -38,6 +38,8 @@ jobs:
           # Step 3で設定したSecretsを環境変数 'GCP_SA_KEY' として渡す
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           EXCEL_PASSWORD_1: ${{ secrets.EXCEL_PASSWORD_1 }}
+          GAS_WEB_APP_URL: ${{ secrets.GAS_WEB_APP_URL }}
+          GAS_SECRET_KEY: ${{ secrets.GAS_SECRET_KEY }}
           
           # ★★★ ここにあなたのフォルダIDを設定してください ★★★
           INPUT_FOLDER_ID: '1PmHkmx4ibaKYPgiVohHtkmOrp-HjxUlL'
