@@ -17,10 +17,10 @@ try:
     
     # 3. GitHub ワークフローファイルからフォルダIDを読み込む
     TARGET_EXCEL_FOLDER_ID = os.environ['INPUT_FOLDER_ID']
-    UPLOAD_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID']
+    UPLOAD_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID'] # ← この値が正しいか要確認
     
     # 4. GitHub SecretsからExcelパスワードを読み込む
-    EXCEL_PASSWORD_1 = os.environ['EXCEL_PASSWORD_1'] # ← 2. 環境変数の読み込みを追加
+    EXCEL_PASSWORD_1 = os.environ['EXCEL_PASSWORD_1'] 
 
 except KeyError as e:
     print(f"エラー: 必要な環境変数が設定されていません: {e}")
@@ -31,20 +31,10 @@ except KeyError as e:
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 
-# 3. パスワード付きExcelを読み込む関数 (io.BytesIOを引数に取るよう修正)
+# 3. パスワード付きExcelを読み込む関数
 def load_locked_excel(buffer: io.BytesIO, sheet_name: str, password: str) -> pd.DataFrame:
-    """パスワード付きExcelファイル(メモリ上)を読み込む
-
-    Args:
-        buffer (io.BytesIO): ダウンロードしたExcelファイルのバイナリデータ
-        sheet_name (str): 読み込むシート名
-        password (str): Excelファイルのパスワード
-
-    Returns:
-        pd.DataFrame: 読み込んだDataFrame
-    """
+    """パスワード付きExcelファイル(メモリ上)を読み込む"""
     try:
-        # メモリ上のBytesIOオブジェクトを直接msoffcryptoに渡す
         office_file = msoffcrypto.OfficeFile(buffer)
         office_file.load_key(password=password)
         decrypted_buffer = io.BytesIO()
@@ -56,7 +46,6 @@ def load_locked_excel(buffer: io.BytesIO, sheet_name: str, password: str) -> pd.
         )
     except Exception as e:
         print(f"Error loading the locked Excel file: {e}")
-        # msoffcrypto固有のエラーをキャッチ
         if "Decryption failed" in str(e) or "bad decrypt" in str(e):
             print(">>> パスワードが間違っているか、ファイル形式がサポートされていません。")
         return pd.DataFrame()
@@ -65,13 +54,8 @@ def load_locked_excel(buffer: io.BytesIO, sheet_name: str, password: str) -> pd.
 
 
 def output_secure_date() -> str:
-    """暗号化コード実行日を返す
-
-    Returns:
-        str: 暗号化コード実行日（yymmdd）
-    """
+    """暗号化コード実行日を返す"""
     today = datetime.date.today()
-
     return today.strftime("%y%m%d")
 
 
@@ -110,7 +94,6 @@ def main():
     latest_file = items[0]
     file_id = latest_file['id']
     file_name = latest_file['name']
-    file_date = file_name[len(FILE_PREFIX):].strip()  # プレフィックス以降の日付部分を抽出
     print(f"最新ファイルが見つかりました: '{file_name}' (ID: {file_id})")
 
     # 3. ファイルをダウンロードしてメモリに読み込む
@@ -136,34 +119,54 @@ def main():
     print("--- 元データ (先頭5行) ---")
     print(df.head())
 
-    # # 5. 必要な処理を施す (この部分はご自身の処理に書き換えてください)
-    # #
-    # # (例: '売上' 列がもしあれば、それに1.1をかける)
-    # # if '売上' in df.columns:
-    # #     df['税込売上'] = df['売上'] * 1.1
-    # #
+    # (5. 処理 ...)
     
-    # print("\n--- 処理後データ (先頭5行) ---")
-    # print(df.head())
-
     # 6. 生成物をCSVファイルとしてローカル（GitHub Actionsの実行環境内）に保存
-    # 出力するCSVファイルの名前
-
     OUTPUT_CSV_FILE_NAME = f"secure-{output_secure_date()}_{file_name.replace('.xlsx', '')}.csv"
-    df.to_csv(OUTPUT_CSV_FILE_NAME, index=False, encoding='utf-8-sig')
-    print(f"\n'{OUTPUT_CSV_FILE_NAME}' として結果をローカルに保存しました。")
+    # Actionsのランナーの /tmp/ など一時ディレクトリに保存
+    local_csv_path = f"/tmp/{OUTPUT_CSV_FILE_NAME}"
+    df.to_csv(local_csv_path, index=False, encoding='utf-8-sig')
+    print(f"\n'{local_csv_path}' として結果をローカルに保存しました。")
     
-    # 7. 【出力】デバッグのため、常にユニークな名前で「新規作成」を試みる
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    debug_file_name = f"debug_output_{timestamp}.csv"
+    # 7. 【出力】
+    
+    # --- ▼▼▼ デバッグコード追加 ▼▼▼ ---
+    print("--- デバッグ情報 (アップロード先フォルダの確認) ---")
+    try:
+        # フォルダIDを使って、フォルダの情報を取得
+        folder_info = service.files().get(
+            fileId=UPLOAD_FOLDER_ID,
+            fields='name, owners, capabilities' # フォルダ名、オーナー情報、権限情報をリクエスト
+        ).execute()
+        
+        print(f"  フォルダ名: {folder_info.get('name')}")
+        
+        # 'owners' はリスト形式なので、各オーナーのメールアドレスを抽出
+        owner_emails = [owner.get('emailAddress', 'N/A') for owner in folder_info.get('owners', [])]
+        print(f"  フォルダのオーナー: {owner_emails}")
+        
+        # 'capabilities' から、サービスアカウントが子ファイルを追加できるか確認
+        capabilities = folder_info.get('capabilities', {})
+        print(f"  SAの権限 (canAddChildren): {capabilities.get('canAddChildren')}")
+        
+        # もしオーナーがあなたで、canAddChildrenがTrueなら、設定は完璧なはず
+        if not capabilities.get('canAddChildren'):
+             print("  警告: サービスアカウントはこのフォルダにファイルを追加(AddChildren)できません。")
 
-    print(f"デバッグ: 出力フォルダ '{UPLOAD_FOLDER_ID}' に '{debug_file_name}' を新規作成中...")
+    except Exception as e:
+        print(f"  デバッグエラー: フォルダ情報の取得に失敗しました: {e}")
+        print(f"  >>> 試行したID (OUTPUT_FOLDER_ID): {UPLOAD_FOLDER_ID}")
+        print("  >>> ID が間違っているか、SAにこのフォルダへのアクセス権(閲覧権限すらない)がありません。")
+    print("-------------------------------------------------")
+    # --- ▲▲▲ デバッグコード追加 ▲▲▲ ---
+
+
+    print(f"出力フォルダ '{UPLOAD_FOLDER_ID}' に '{OUTPUT_CSV_FILE_NAME}' を新規作成中...")
     file_metadata = {
-        'name': debug_file_name,
-        'parents': [UPLOAD_FOLDER_ID]
+        'name': OUTPUT_CSV_FILE_NAME, 
+        'parents': [UPLOAD_FOLDER_ID] 
     }
-    media = MediaFileUpload(OUTPUT_CSV_FILE_NAME, mimetype='text/csv')
+    media = MediaFileUpload(local_csv_path, mimetype='text/csv') 
 
     try:
         upload_file = service.files().create(
@@ -172,12 +175,15 @@ def main():
             fields='id'
         ).execute()
         
-        print(f"デバッグ: 新規作成成功。ファイルID: {upload_file.get('id')}")
+        print(f"新規作成成功。ファイルID: {upload_file.get('id')}")
 
     except Exception as e:
-        print(f"デバッグ: やはり新規作成(create)に失敗しました。エラー: {e}")
+        print(f"致命的エラー: 新規作成(create)に失敗しました。エラー: {e}")
+        print("--- デバッグ情報 ---")
+        print(f"試行したフォルダID (OUTPUT_FOLDER_ID): {UPLOAD_FOLDER_ID}")
+        print(f"試行したファイル名: {OUTPUT_CSV_FILE_NAME}")
+        print("Google Drive上でこのフォルダIDが正しいか、サービスアカウントに「編集者」権限があるか確認してください。")
 
-    # print(f"アップロード完了。ファイルID: {upload_file.get('id')}") # 元のコードの最後の行もコメントアウト
 
 if __name__ == '__main__':
     main()
