@@ -7,6 +7,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 import json
 import msoffcrypto
+import requests # ★ 追加
 
 # --- 設定項目 (GitHubの環境変数から自動で読み込む) ---
 try:
@@ -17,21 +18,25 @@ try:
     
     # 3. GitHub ワークフローファイルからフォルダIDを読み込む
     TARGET_EXCEL_FOLDER_ID = os.environ['INPUT_FOLDER_ID']
-    UPLOAD_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID'] # ← この値が正しいか要確認
+    UPLOAD_FOLDER_ID = os.environ['OUTPUT_FOLDER_ID'] # GASに渡すため、引き続き必要
     
     # 4. GitHub SecretsからExcelパスワードを読み込む
     EXCEL_PASSWORD_1 = os.environ['EXCEL_PASSWORD_1'] 
 
+    # 5. ★ 追加 ★ GAS Webアプリの情報を読み込む
+    GAS_WEB_APP_URL = os.environ['GAS_WEB_APP_URL']
+    GAS_SECRET_KEY = os.environ['GAS_SECRET_KEY']
+
 except KeyError as e:
     print(f"エラー: 必要な環境変数が設定されていません: {e}")
-    print("GitHubのSecretsに 'GCP_SA_KEY'、 'EXCEL_PASSWORD_1'、ワークフローファイルに 'INPUT_FOLDER_ID' と 'OUTPUT_FOLDER_ID' が必要です。")
+    print("Secrets/Variables に GCP_SA_KEY, EXCEL_PASSWORD_1, INPUT_FOLDER_ID, OUTPUT_FOLDER_ID, GAS_WEB_APP_URL, GAS_SECRET_KEY が必要です。")
     exit(1)
 
-# Google APIのスコープ
-SCOPES = ['https://www.googleapis.com/auth/drive']
+# Google APIのスコープ (ダウンロードにのみ使用)
+SCOPES = ['https://www.googleapis.com/auth/drive.readonly'] # ★ 権限を ReadOnly に変更
 
 
-# 3. パスワード付きExcelを読み込む関数
+# 3. パスワード付きExcelを読み込む関数 (変更なし)
 def load_locked_excel(buffer: io.BytesIO, sheet_name: str, password: str) -> pd.DataFrame:
     """パスワード付きExcelファイル(メモリ上)を読み込む"""
     try:
@@ -54,7 +59,7 @@ def load_locked_excel(buffer: io.BytesIO, sheet_name: str, password: str) -> pd.
 
 
 def output_secure_date() -> str:
-    """暗号化コード実行日を返す"""
+    """暗号化コード実行日を返す (変更なし)"""
     today = datetime.date.today()
     return today.strftime("%y%m%d")
 
@@ -62,13 +67,13 @@ def output_secure_date() -> str:
 def main():
     """メインの処理を実行する関数"""
     
-    # 1. 認証とサービスの準備
-    print("Google Driveに認証中...")
+    # 1. 認証とサービスの準備 (★ Drive APIはダウンロードにのみ使用)
+    print("Google Driveに認証中 (ダウンロード用)...")
     creds = service_account.Credentials.from_service_account_info(
         sa_key_json, scopes=SCOPES)
     service = build('drive', 'v3', credentials=creds)
 
-    # 2. 【入力】指定したフォルダ内の最新ファイルを取得
+    # 2. 【入力】指定したフォルダ内の最新ファイルを取得 (変更なし)
     FILE_PREFIX = "東大特進入学＆資料請求"
     print(f"入力フォルダ '{TARGET_EXCEL_FOLDER_ID}' 内で")
     print(f"プレフィックスが '{FILE_PREFIX}' の最新ファイルを検索中...")
@@ -81,7 +86,7 @@ def main():
     results = service.files().list(
         q=query,
         pageSize=1,
-        orderBy='name desc', # 作成日の降順（新しい順）
+        orderBy='name desc',
         fields='files(id, name)'
     ).execute()
     
@@ -96,7 +101,7 @@ def main():
     file_name = latest_file['name']
     print(f"最新ファイルが見つかりました: '{file_name}' (ID: {file_id})")
 
-    # 3. ファイルをダウンロードしてメモリに読み込む
+    # 3. ファイルをダウンロードしてメモリに読み込む (変更なし)
     request = service.files().get_media(fileId=file_id)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
@@ -107,7 +112,7 @@ def main():
     
     fh.seek(0)
 
-    # 4. PandasでExcelデータを読み込む
+    # 4. PandasでExcelデータを読み込む (変更なし)
     print("PandasでExcelデータを読み込み中...")
     TARGET_SHEET_NAME = "H3(2026卒)"
     df: pd.DataFrame = load_locked_excel(fh, sheet_name=TARGET_SHEET_NAME, password=EXCEL_PASSWORD_1)
@@ -116,73 +121,67 @@ def main():
         print("Excelデータの読み込みに失敗したか、データが空です。処理を終了します。")
         return
     print("Excelデータの読み込み完了。")
-    print("--- 元データ (先頭5行) ---")
-    print(df.head())
 
-    # (5. 処理 ...)
-    
-    # 6. 生成物をCSVファイルとしてローカル（GitHub Actionsの実行環境内）に保存
+    # 5. (処理 ...)
+
+    # 6. 生成物をCSVファイルとして「メモリ上の文字列」に変換
     OUTPUT_CSV_FILE_NAME = f"secure-{output_secure_date()}_{file_name.replace('.xlsx', '')}.csv"
-    # Actionsのランナーの /tmp/ など一時ディレクトリに保存
-    local_csv_path = f"/tmp/{OUTPUT_CSV_FILE_NAME}"
-    df.to_csv(local_csv_path, index=False, encoding='utf-8-sig')
-    print(f"\n'{local_csv_path}' として結果をローカルに保存しました。")
     
-    # 7. 【出力】
+    # ★ 変更点: ローカルファイルに保存せず、文字列として取得
+    csv_data_string = df.to_csv(index=False, encoding='utf-8-sig')
+    print(f"\n'{OUTPUT_CSV_FILE_NAME}' のCSVデータをメモリ上に生成しました。")
     
-    # --- ▼▼▼ デバッグコード追加 ▼▼▼ ---
-    print("--- デバッグ情報 (アップロード先フォルダの確認) ---")
-    try:
-        # フォルダIDを使って、フォルダの情報を取得
-        folder_info = service.files().get(
-            fileId=UPLOAD_FOLDER_ID,
-            fields='name, owners, capabilities' # フォルダ名、オーナー情報、権限情報をリクエスト
-        ).execute()
-        
-        print(f"  フォルダ名: {folder_info.get('name')}")
-        
-        # 'owners' はリスト形式なので、各オーナーのメールアドレスを抽出
-        owner_emails = [owner.get('emailAddress', 'N/A') for owner in folder_info.get('owners', [])]
-        print(f"  フォルダのオーナー: {owner_emails}")
-        
-        # 'capabilities' から、サービスアカウントが子ファイルを追加できるか確認
-        capabilities = folder_info.get('capabilities', {})
-        print(f"  SAの権限 (canAddChildren): {capabilities.get('canAddChildren')}")
-        
-        # もしオーナーがあなたで、canAddChildrenがTrueなら、設定は完璧なはず
-        if not capabilities.get('canAddChildren'):
-             print("  警告: サービスアカウントはこのフォルダにファイルを追加(AddChildren)できません。")
+    
+    # 7. ★★★【出力】GAS WebアプリにCSVデータをPOSTする ★★★
+    print(f"Google Apps Script Webアプリにアップロード中...")
+    print(f"  -> フォルダID: {UPLOAD_FOLDER_ID}")
+    print(f"  -> ファイル名: {OUTPUT_CSV_FILE_NAME}")
 
-    except Exception as e:
-        print(f"  デバッグエラー: フォルダ情報の取得に失敗しました: {e}")
-        print(f"  >>> 試行したID (OUTPUT_FOLDER_ID): {UPLOAD_FOLDER_ID}")
-        print("  >>> ID が間違っているか、SAにこのフォルダへのアクセス権(閲覧権限すらない)がありません。")
-    print("-------------------------------------------------")
-    # --- ▲▲▲ デバッグコード追加 ▲▲▲ ---
-
-
-    print(f"出力フォルダ '{UPLOAD_FOLDER_ID}' に '{OUTPUT_CSV_FILE_NAME}' を新規作成中...")
-    file_metadata = {
-        'name': OUTPUT_CSV_FILE_NAME, 
-        'parents': [UPLOAD_FOLDER_ID] 
+    # (1) GASに送信するJSONデータを作成
+    payload = {
+        "folderId": UPLOAD_FOLDER_ID,
+        "filename": OUTPUT_CSV_FILE_NAME,
+        "csvData": csv_data_string
     }
-    media = MediaFileUpload(local_csv_path, mimetype='text/csv') 
+    
+    # (2) セキュリティのためのヘッダーを作成
+    headers = {
+        "Content-Type": "application/json",
+        "X-Api-Key": GAS_SECRET_KEY # GAS側で設定した秘密鍵
+    }
 
     try:
-        upload_file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
+        # (3) HTTP POSTリクエストを送信
+        response = requests.post(GAS_WEB_APP_URL, headers=headers, json=payload, timeout=60)
         
-        print(f"新規作成成功。ファイルID: {upload_file.get('id')}")
+        # (4) レスポンスのステータスコードを確認
+        response.raise_for_status() # 200番台以外の場合はエラーを送出
+        
+        # (5) GASからのJSONレスポンスをパース
+        response_json = response.json()
 
-    except Exception as e:
-        print(f"致命的エラー: 新規作成(create)に失敗しました。エラー: {e}")
-        print("--- デバッグ情報 ---")
-        print(f"試行したフォルダID (OUTPUT_FOLDER_ID): {UPLOAD_FOLDER_ID}")
-        print(f"試行したファイル名: {OUTPUT_CSV_FILE_NAME}")
-        print("Google Drive上でこのフォルダIDが正しいか、サービスアカウントに「編集者」権限があるか確認してください。")
+        if response_json.get('status') == 'success':
+            print("\n--- アップロード成功 (GAS) ---")
+            print(f"  ファイル名: {response_json.get('fileName')}")
+            print(f"  ファイルID: {response_json.get('fileId')}")
+            print(f"  ファイルURL: {response_json.get('fileUrl')}")
+        else:
+            print(f"\n--- アップロード失敗 (GASがエラーを報告) ---")
+            print(f"  メッセージ: {response_json.get('message')}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"\n--- 致命的エラー: GAS Webアプリの呼び出しに失敗しました。 ---")
+        print(f"  URL: {GAS_WEB_APP_URL}")
+        if e.response:
+            print(f"  ステータスコード: {e.response.status_code}")
+            try:
+                print(f"  レスポンス: {e.response.json()}")
+            except requests.exceptions.JSONDecodeError:
+                print(f"  レスポンス: {e.response.text}")
+        else:
+            print(f"  エラー: {e}")
+        print("\n  >>> GASのデプロイ設定('全員'にアクセス許可)とSECRET_KEYが正しいか確認してください。")
+        exit(1) # エラーで終了
 
 
 if __name__ == '__main__':
