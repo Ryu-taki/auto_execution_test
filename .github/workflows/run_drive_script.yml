@@ -41,7 +41,7 @@ jobs:
           
           # ★★★ ここにあなたのフォルダIDを設定してください ★★★
           INPUT_FOLDER_ID: '1PmHkmx4ibaKYPgiVohHtkmOrp-HjxUlL'
-          OUTPUT_FOLDER_ID: '1Ve3PrGzm4dXskJdyKZf5E3akhgpNemkq'
+          OUTPUT_FOLDER_ID: '17_p_6xLE_niKfhcmIxubITGMonuPEwxA'
           # ★★★ ここまで ★★★
           
         run: python process_drive_excel.py
