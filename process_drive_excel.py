@@ -120,6 +120,7 @@ def main():
     fh.seek(0)
 
     # 4. PandasでExcelデータを読み込む
+    print(f"GAS SECRET_KEY: {GAS_SECRET_KEY}")  # デバッグ用にキーを出力
     print("PandasでExcelデータを読み込み中...")
     TARGET_SHEET_NAME = "H3(2026卒)"
     df: pd.DataFrame = load_locked_excel(fh, sheet_name=TARGET_SHEET_NAME, password=EXCEL_PASSWORD_1)
