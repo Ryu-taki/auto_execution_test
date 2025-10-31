@@ -118,7 +118,7 @@ def main():
             return
         print("Excelデータの読み込み完了。")
 
-        output_filename = f"secure-{output_secure_date()}_{file_name.replace('.xlsx', '')}_{sheet_name}.csv"
+        output_filename = f"{output_secure_date()}/secure-{output_secure_date()}_{file_name.replace('.xlsx', '')}_{sheet_name}.csv"
         print(f"'{output_filename}' のCSVデータをメモリ上に生成しました。")
         csv_data_string = df.to_csv(index=False, encoding='utf-8-sig')
 
