@@ -62,44 +62,38 @@ def output_secure_date() -> str:
     return today.strftime("%y%m%d")
 
 
-def main():
-    """メインの処理を実行する関数"""
-    
-    # 1. 認証とサービスの準備 (変更なし)
-    print("Google Driveに認証中 (ダウンロード用)...")
+def build_drive_service(sa_key_json: dict, scopes: list):
+    """Google Drive APIの認証を行い、サービスオブジェクトを構築する"""
     creds = service_account.Credentials.from_service_account_info(
-        sa_key_json, scopes=SCOPES)
+        sa_key_json, scopes=scopes)  
     service = build('drive', 'v3', credentials=creds)
-
-    # 2. 【入力】指定したフォルダ内の最新ファイルを取得 (変更なし)
-    FILE_PREFIX = "東大特進入学＆資料請求"
-    print(f"入力フォルダ '{TARGET_EXCEL_FOLDER_ID}' 内で")
-    print(f"プレフィックスが '{FILE_PREFIX}' の最新ファイルを検索中...")
     
+    return service
+
+
+def find_latest_file(service, folder_id: str, prefix: str) -> dict[str,str]:
+    """指定したフォルダ内で、特定のプレフィックスを持つ最新のファイルを取得する"""
     query = (
-        f"'{TARGET_EXCEL_FOLDER_ID}' in parents "
+        f"'{folder_id}' in parents "
         f"and trashed = false "
-        f"and name starts with '{FILE_PREFIX}' "
+        f"and name starts with '{prefix}' "
     )
     results = service.files().list(
         q=query,
         pageSize=1,
-        orderBy='name desc', 
+        orderBy='modifiedTime desc', 
         fields='files(id, name, modifiedTime)'
     ).execute()
     
     items = results.get('files', [])
-
     if not items:
-        print('フォルダ内にファイルが見つかりませんでした。')
-        return
-    # ... (ファイル名取得、ダウンロード、Excel読み込み、CSV生成 ... 変更なし) ...
-    latest_file = items[0]
-    file_id = latest_file['id']
-    file_name = latest_file['name']
-    stored_time = latest_file['modifiedTime']
-    print(f"最新ファイルが見つかりました: '{file_name}' (更新日時: {stored_time})")
+        return {}
 
+    return items[0]
+
+
+def download_drive_file(service, file_id: str, file_name: str) -> io.BytesIO:
+    """ファイルをダウンロードし、メモリ上のBytesIOバッファとして返す"""
     request = service.files().get_media(fileId=file_id)
     fh = io.BytesIO()
     downloader = MediaIoBaseDownload(fh, request)
@@ -107,19 +101,48 @@ def main():
     while done is False:
         status, done = downloader.next_chunk()
         print(f"ダウンロード中 {int(status.progress() * 100)}%")
-    fh.seek(0)
 
+    return fh
+
+
+def main():
+    """メインの処理を実行する関数"""
+    
+    # 1. 【準備】認証とサービスの準備
+    print("Google Driveに認証中 (ダウンロード用)...")
+    service = build_drive_service(sa_key_json, SCOPES)
+
+    # 2. 【準備】指定したフォルダ内の最新ファイルを取得
+    FILE_PREFIX = "東大特進入学＆資料請求"
+    latest_file = find_latest_file(service, TARGET_EXCEL_FOLDER_ID, FILE_PREFIX)
+    if not latest_file:
+        print("最新のファイルが見つかりませんでした。処理を終了します。")
+        return
+
+    file_id = latest_file['id']
+    file_name = latest_file['name']
+    stored_time = latest_file['modifiedTime']
+    print(f"最新ファイルが見つかりました: '{file_name}' (更新日時: {stored_time})")
+
+    # 3. 【準備】ファイルをダウンロードしてExcelデータを読み込む
+    fh = download_drive_file(service, file_id, file_name)
+
+    # 4. 【実行】各シートを読み込み、CSVデータを生成してGASにアップロード
     print("PandasでExcelデータを読み込み中...")
+    file_name_without_extension = file_name.replace('.xlsx', '')
+    
     for sheet_name in ["H1(2028卒)", "H2(2027卒)", "H3(2026卒)"]:
         print(f"-> シート名: {sheet_name}")
+        fh.seek(0)  # バッファの先頭に戻る
+        
         df: pd.DataFrame = load_locked_excel(fh, sheet_name=sheet_name, password=EXCEL_PASSWORD_1)
         
         if df.empty:
             print("Excelデータの読み込みに失敗したか、データが空です。処理を終了します。")
-            return
+            continue
         print("Excelデータの読み込み完了。")
 
-        output_filename = f"{output_secure_date()}/secure-{output_secure_date()}_{file_name.replace('.xlsx', '')}_{sheet_name}.csv"
+        output_filename = f"{output_secure_date()}/secure-{output_secure_date()}_{file_name_without_extension}_{sheet_name}.csv"
         print(f"'{output_filename}' のCSVデータをメモリ上に生成しました。")
         csv_data_string = df.to_csv(index=False, encoding='utf-8-sig')
 
