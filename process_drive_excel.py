@@ -123,56 +123,86 @@ def main():
 
 
     # 6. 【出力】GAS Web Appを呼び出す
-    print("Google Apps Script Webアプリにアップロード中...")
-    print(f"  -> フォルダID: {UPLOAD_FOLDER_ID}")
-    print(f"  -> ファイル名: {output_filename}")
-
-    # ★★★ 変更点 ★★★
-    # ヘッダー (headers) を削除
+    success = upload_csv_to_gas(
+        csv_data=csv_data_string,
+        file_path=output_filename,
+        folder_id=UPLOAD_FOLDER_ID,
+        gas_url=GAS_WEB_APP_URL,
+        gas_key=GAS_SECRET_KEY
+    )
     
-    # ペイロード (payload) に 'apiKey' を追加
-    payload = {
-        "apiKey": GAS_SECRET_KEY,      # ← キーをペイロードに含める
-        "folderId": UPLOAD_FOLDER_ID,
-        "filename": output_filename,
-        "csvData": csv_data_string
-    }
+    if success:
+        print("処理が正常に完了しました。")
+    else:
+        print("処理中にエラーが発生しました。")
+        exit(1)
 
+
+def upload_csv_to_gas(
+    csv_data: str,
+    file_path: str,
+    folder_id: str,
+    gas_url: str,
+    gas_key: str
+) -> bool:
+    """csvデータをGAS Web AppにPOSTリクエストで送信し、Driveにアップロードする.
+    
+    Args:
+        csv_data (str): アップロードするcsvデータの文字列
+        file_path (str): GAS側で解釈されるファイルパス
+        folder_id (str): Driveの親フォルダID
+        gas_url (str): GAS Web AppのデプロイURL
+        gas_key (str): GASと共有するシークレットキー
+
+    Returns:
+        bool: アップロードが成功したかどうか
+    """
+    print("Google Apps Script Webアプリにアップロード中...")
+    print(f"-> フォルダID: {folder_id}")
+    print(f"-> ファイル名: {file_path}")
+    
+    # GASが受け取るペイロードを定義
+    payload = {
+        "apiKey": gas_key,
+        "folderId": folder_id,
+        "filePath": file_path,
+        "csvData": csv_data
+    }
+    
     try:
-        # ★★★ 変更点 ★★★
-        # requests.post から headers=... を削除
-        response = requests.post(GAS_WEB_APP_URL, json=payload, timeout=120)
-        
-        response.raise_for_status() 
+        response = requests.post(gas_url, json=payload, timeout=120)
+        response.raise_for_status()  # HTTPエラーがあれば例外を発生させる
         response_json = response.json()
 
         if response_json.get("status") == "success":
             print("\n--- アップロード成功 ---")
-            print(f"  ファイルID: {response_json.get('fileId')}")
-            print(f"  ファイルURL: {response_json.get('fileUrl')}")
+            print(f"ファイルID: {response_json.get('fileId')}")
+            print(f"ファイルURL: {response_json.get('fileUrl')}")
+            return True
         else:
             print("\n--- アップロード失敗 (GASがエラーを報告) ---")
-            print(f"  メッセージ: {response_json.get('message')}")
-            print(f"  GASからの詳細: {response_json}")
-
+            print(f"メッセージ: {response_json.get('message')}")
+            print(f"GASからの詳細: {response_json}")
+            return False
 
     except requests.exceptions.JSONDecodeError as e:
-        # ... (エラーハンドリング 変更なし) ...
         print("\n--- 致命的エラー: GASからのレスポンスがJSONではありませんでした。 ---")
-        print(f"  URL: {GAS_WEB_APP_URL}")
-        print(f"  エラー: {e}")
-        print(f"  受け取ったレスポンス (生テキスト): {response.text[:1000]}...")
-        print("\n  >>> GASのデプロイ設定('全員'にアクセス許可)が正しいか確認してください。")
-    
+        print(f"URL: {gas_url}")
+        print(f"エラー: {e}")
+        print(f"受け取ったレスポンス (生テキスト): {response.text[:1000]}...")
+        print("\n>>> GASのデプロイ設定('全員'にアクセス許可)が正しいか確認してください。")
+        return False
+
     except requests.exceptions.RequestException as e:
-        # ... (エラーハンドリング 変更なし) ...
         print(f"\n--- 致命的エラー: GAS Webアプリの呼び出しに失敗しました。 ---")
-        print(f"  URL: {GAS_WEB_APP_URL}")
-        print(f"  エラー: {e}")
+        print(f"URL: {gas_url}")
+        print(f"エラー: {e}")
         if e.response:
-            print(f"  ステータスコード: {e.response.status_code}")
-            print(f"  レスポンス: {e.response.text[:1000]}...")
-        print("\n  >>> GASのURL、ネットワーク設定、またはGAS側のタイムアウトを確認してください。")
+            print(f"ステータスコード: {e.response.status_code}")
+            print(f"レスポンス: {e.response.text[:1000]}...")
+        print("\n>>> GASのURL、ネットワーク設定、またはGAS側のタイムアウトを確認してください。")
+        return False
+    
 
 if __name__ == '__main__':
     main()
