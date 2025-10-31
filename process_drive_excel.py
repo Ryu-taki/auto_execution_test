@@ -109,33 +109,34 @@ def main():
     fh.seek(0)
 
     print("PandasでExcelデータを読み込み中...")
-    TARGET_SHEET_NAME = "H3(2026卒)"
-    df: pd.DataFrame = load_locked_excel(fh, sheet_name=TARGET_SHEET_NAME, password=EXCEL_PASSWORD_1)
-    
-    if df.empty:
-        print("Excelデータの読み込みに失敗したか、データが空です。処理を終了します。")
-        return
-    print("Excelデータの読み込み完了。")
+    for sheet_name in ["H1(2028卒)", "H2(2027卒)", "H3(2026卒)"]:
+        print(f"-> シート名: {sheet_name}")
+        df: pd.DataFrame = load_locked_excel(fh, sheet_name=sheet_name, password=EXCEL_PASSWORD_1)
+        
+        if df.empty:
+            print("Excelデータの読み込みに失敗したか、データが空です。処理を終了します。")
+            return
+        print("Excelデータの読み込み完了。")
 
-    output_filename = f"secure-{output_secure_date()}_{file_name.replace('.xlsx', '')}.csv"
-    print(f"'{output_filename}' のCSVデータをメモリ上に生成しました。")
-    csv_data_string = df.to_csv(index=False, encoding='utf-8-sig')
+        output_filename = f"secure-{output_secure_date()}_{file_name.replace('.xlsx', '')}_{sheet_name}.csv"
+        print(f"'{output_filename}' のCSVデータをメモリ上に生成しました。")
+        csv_data_string = df.to_csv(index=False, encoding='utf-8-sig')
 
 
-    # 6. 【出力】GAS Web Appを呼び出す
-    success = upload_csv_to_gas(
-        csv_data=csv_data_string,
-        file_path=output_filename,
-        folder_id=UPLOAD_FOLDER_ID,
-        gas_url=GAS_WEB_APP_URL,
-        gas_key=GAS_SECRET_KEY
-    )
-    
-    if success:
-        print("処理が正常に完了しました。")
-    else:
-        print("処理中にエラーが発生しました。")
-        exit(1)
+        # 6. 【出力】GAS Web Appを呼び出す
+        success = upload_csv_to_gas(
+            csv_data=csv_data_string,
+            file_path=output_filename,
+            folder_id=UPLOAD_FOLDER_ID,
+            gas_url=GAS_WEB_APP_URL,
+            gas_key=GAS_SECRET_KEY
+        )
+        
+        if success:
+            print("処理が正常に完了しました。")
+        else:
+            print("処理中にエラーが発生しました。")
+            exit(1)
 
 
 def upload_csv_to_gas(
