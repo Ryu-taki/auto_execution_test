@@ -85,7 +85,7 @@ def main():
         q=query,
         pageSize=1,
         orderBy='name desc', 
-        fields='files(id, name)'
+        fields='files(id, name, modifiedTime)'
     ).execute()
     
     items = results.get('files', [])
@@ -97,7 +97,8 @@ def main():
     latest_file = items[0]
     file_id = latest_file['id']
     file_name = latest_file['name']
-    print(f"最新ファイルが見つかりました: '{file_name}' (ID: {file_id})")
+    stored_time = latest_file['modifiedTime']
+    print(f"最新ファイルが見つかりました: '{file_name}' (更新日時: {stored_time})")
 
     request = service.files().get_media(fileId=file_id)
     fh = io.BytesIO()
